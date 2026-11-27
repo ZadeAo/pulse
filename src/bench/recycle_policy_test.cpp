@@ -81,6 +81,20 @@ int main(int argc, char** argv) {
         check(!unc.available && !unc.volume_error, "UNC is refused without contacting network");
         const auto extended_unc = QueryRecyclePolicy(L"\\\\?\\UNC\\pulse-invalid-test-host\\share\\file");
         check(!extended_unc.available && !extended_unc.volume_error, "extended UNC is refused without contacting network");
+        // A user-mode (cloud / WinFsp) mount reports DRIVE_FIXED but keeps no
+        // Recycle Bin: the Shell answers a recycle with "cancelled" and the item
+        // stays put. The policy must refuse it so the caller offers the
+        // permanent delete instead of reporting a failed delete.
+        if (GetDriveTypeW(root.wstring().substr(0, 3).c_str()) == DRIVE_FIXED) {
+            const std::wstring drive = root.wstring().substr(0, 1);
+            SetEnvironmentVariableW(L"PULSE_TEST_DATA_DIR", root.wstring().c_str());
+            SetEnvironmentVariableW(L"PULSE_TEST_REMOTE_LIKE_DRIVES", drive.c_str());
+            const auto cloud = QueryRecyclePolicy(root.wstring());
+            SetEnvironmentVariableW(L"PULSE_TEST_REMOTE_LIKE_DRIVES", nullptr);
+            SetEnvironmentVariableW(L"PULSE_TEST_DATA_DIR", nullptr);
+            check(!cloud.available && !cloud.volume_error, "user-mode cloud mount has no recycle bin");
+            check(QueryRecyclePolicy(root.wstring()).available, "ordinary local drive keeps its recycle bin");
+        }
         check(fs::file_size(root / L"sub" / L"file") == 8192, "policy checks preserve source");
         fs::remove_all(root);
     } catch (const std::exception& e) { std::printf("[FAIL] %s\n", e.what()); ++failed; }

@@ -1,5 +1,6 @@
 #include "elevated_delete.h"
 #include "../common/path_utils.h"
+#include "../fs/drive_kind.h"
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <shellapi.h>
@@ -391,6 +392,11 @@ RecyclePolicy QueryRecyclePolicy(const std::wstring& path) {
         return policy;
     }
     if (GetDriveTypeW(root.data()) != DRIVE_FIXED) return policy;
+    // A user-mode (cloud) mount reports DRIVE_FIXED but keeps no Recycle Bin of
+    // its own: the Shell answers a recycle with "cancelled" and the item stays
+    // put, so the delete looked like a failure. Treat it like a share so
+    // callers offer the permanent delete, as Explorer does.
+    if (::pulse::fs::IsRemoteLikeDrive(path)) return policy;
     DWORD value = 0;
     if (PolicyDword(L"NoRecycleFiles", value) && value != 0) policy.limits.disabled = true;
     else policy.limits = ReadRecycleBinLimitsForRoot(root.data());
